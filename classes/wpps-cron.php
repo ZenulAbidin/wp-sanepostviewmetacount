@@ -43,34 +43,32 @@ if ( ! class_exists( 'WPPS_Cron' ) ) {
 				'display'  => 'Every 5 seconds'
 			);
 
-			$schedules[ 'wpps_ten_minutes' ] = array(
+			$schedules[ 'wpps_10_minutes' ] = array(
 				'interval' => 60 * 10,
 				'display'  => 'Every 10 minutes'
 			);
 
-			$schedules[ 'wpps_example_interval' ] = array(
-				'interval' => 60 * 60 * 5,
-				'display'  => 'Every 5 hours'
+			$schedules[ 'wpps_1_hour' ] = array(
+				'interval' => 60 * 60,
+				'display'  => 'Every 1 hour'
+			);
+
+			$schedules[ 'wpps_6_hours' ] = array(
+				'interval' => 60 * 60 * 6,
+				'display'  => 'Every 6 hours'
+			);
+
+			$schedules[ 'wpps_1_day' ] = array(
+				'interval' => 60 * 60 * 24,
+				'display'  => 'Every 1 day'
+			);
+
+			$schedules[ 'wpps_custom_interval' ] = array(
+				'interval' => 60 * $spvcmvu_job_interval,
+				'display'  => 'Custom interval (minutes)'
 			);
 
 			return $schedules;
-		}
-
-		/**
-		 * Fires a cron job at a specific time of day, rather than on an interval
-		 *
-		 * @mvc Controller
-		 */
-		public static function fire_job_at_time() {
-			$now = current_time( 'timestamp' );
-
-			// Example job to fire between 1am and 3am
-			if ( (int) date( 'G', $now ) >= 1 && (int) date( 'G', $now ) <= 3 ) {
-				if ( ! get_transient( 'wpps_cron_example_timed_job' ) ) {
-					//WPPS_CPT_Example::exampleTimedJob();
-					set_transient( 'wpps_cron_example_timed_job', true, 60 * 60 * 6 );
-				}
-			}
 		}
 
 		/**
@@ -81,10 +79,53 @@ if ( ! class_exists( 'WPPS_Cron' ) ) {
 		 * @param array $schedules
 		 * @return array
 		 */
-		public static function example_job() {
+		public static function update_spvcmvu_counts() {
 			// Do stuff
-
 			add_notice( __METHOD__ . ' cron job fired.' );
+			global $wpdb;
+			// Needed to get post IDs
+			$post_ids = $wpdb->get_results ("SELECT id FROM  $wpdb->wp_posts WHERE post_type = 'post'");
+			//$query_string = ""; /* Get the option from somewhere */
+			if ($spvcmcvu_query_type == 1) {
+				// Post View Counter
+				$query_string = "SELECT id,count FROM %SPVCMVU_WPDB_PREFIX%wp_post_views WHERE period='total';";
+			} else if ($spvcmcvu_query_type == 0) {
+				/*
+				 * Arbitrary query
+				 * To prevent malicious DB commands, immediately terminate if
+				 * the qeruy doesn't begin with SELECT or contains a semicolon
+				 * (possible sql command chaning).
+				 */
+				$res = explode(" ", $spvcmcvu_query_string, 2);
+				if (strtolower($res[0]) != "select" || strpos($query_string, ';') != false) {
+					return; //FIXME make warning?!!
+				}
+			} else {
+				/* Invalid query type, do nothing */
+				return;
+			}
+			str_replace("%SPVCMVU_WPDB_PREFIX%", $wpdb->prefix, $query_string);
+			$result = $wpdb->query($query_string);
+			foreach ($result as $r_elem) {
+				$r_id = (int) $result["{$spvcmcvu_id_name}"];
+				$r_count = (int) $result["{$spvcmcvu_count_name}"];
+				update_post_meta($r_id, $spvcmvu_meta_key, $r_count);
+
+				if (($key = array_search($r_id, $post_ids)) !== false) {
+					/* We should always arrive here unless we have duplicate ID
+					 * results form the DB.
+					 */
+					unset($post_ids[$key]);
+				}
+			}
+
+			/*
+			 * For those post IDs that aren't in the result, assign them a count of 0.
+			 * Sometimes, plugins do not make DB entries for posts it does not edit.
+			 */
+			foreach ($post_ids as $r_id) {
+				update_post_meta((int) $r_id, $spvcmvu_meta_key, 0);
+			}
 		}
 
 
@@ -98,8 +139,7 @@ if ( ! class_exists( 'WPPS_Cron' ) ) {
 		 * @mvc Controller
 		 */
 		public function register_hook_callbacks() {
-			add_action( 'wpps_cron_timed_jobs',  __CLASS__ . '::fire_job_at_time' );
-			add_action( 'wpps_cron_example_job', __CLASS__ . '::example_job' );
+			add_action( 'wpps_cron_update_spvcmvu_counts', __CLASS__ . '::update_spvcmvu_counts' );
 
 			add_action( 'init',                  array( $this, 'init' ) );
 
@@ -114,19 +154,11 @@ if ( ! class_exists( 'WPPS_Cron' ) ) {
 		 * @param bool $network_wide
 		 */
 		public function activate( $network_wide ) {
-			if ( wp_next_scheduled( 'wpps_cron_timed_jobs' ) === false ) {
+			if ( wp_next_scheduled( 'wpps_cron_update_spvcmvu_counts' ) === false ) {
 				wp_schedule_event(
 					current_time( 'timestamp' ),
-					'wpps_ten_minutes',
-					'wpps_cron_timed_jobs'
-				);
-			}
-
-			if ( wp_next_scheduled( 'wpps_cron_example_job' ) === false ) {
-				wp_schedule_event(
-					current_time( 'timestamp' ),
-					'wpps_example_interval',
-					'wpps_cron_example_job'
+					'wpps_1_hour',
+					'wpps_cron_update_spvcmvu_counts'
 				);
 			}
 		}
@@ -137,8 +169,7 @@ if ( ! class_exists( 'WPPS_Cron' ) ) {
 		 * @mvc Controller
 		 */
 		public function deactivate() {
-			wp_clear_scheduled_hook( 'wpps_cron_timed_jobs' );
-			wp_clear_scheduled_hook( 'wpps_cron_example_job' );
+			wp_clear_scheduled_hook( 'wpps_cron_update_spvcmvu_counts' );
 		}
 
 		/**

@@ -1,11 +1,12 @@
 <?php
 /*
 Plugin Name: SPVCMVU (Sane Post View Count Meta Value Updater)
-Plugin URI:  https://github.com/ZenulAbidin/wp-sanepostviewmetacount
+Plugin URI:  https://notatether.com/code-life/wp-sanepostviewmetacount #https://github.com/ZenulAbidin/wp-sanepostviewmetacount
 Description: Read the post view counts from the DB tables of other plugins and add them as meta values to each post.
 Version:     0.1
 Author:      Ali Sherief
 Author URI:  http://notatether.com
+License:	 MIT
 */
 
 /*
